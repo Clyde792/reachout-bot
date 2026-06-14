@@ -26,11 +26,19 @@ async function supabase(method, path, body) {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
       "Content-Type": "application/json",
-      Prefer: method === "POST" ? "return=representation" : "",
+      Prefer: method === "POST" ? "return=minimal" : "",
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return res.json();
+  if (res.status === 204 || res.headers.get('content-length') === '0') return {};
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error('Supabase parse error:', text);
+    return {};
+  }
 }
 
 async function upsertConversation(chatId, username) {
