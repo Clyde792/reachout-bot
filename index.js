@@ -1,5 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
+import twilio from "twilio";
 
 const app = express();
 app.use(express.json());
@@ -18,6 +19,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const API_KEY = process.env.DASHBOARD_API_KEY || "reachout123";
 const WORKER_TELEGRAM_ID = 1792561793;
+const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM = process.env.TWILIO_PHONE_NUMBER;
+const WORKER_PHONE = process.env.WORKER_PHONE_NUMBER;
 
 async function supabase(method, path, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -141,6 +146,19 @@ async function generateSummary(chatId) {
       setTimeout(async function () {
         await sendTelegram(WORKER_TELEGRAM_ID, "URGENT - Immediate response needed\n\n@" + username + " has been waiting 1 minute with no response.\n\nThis requires immediate attention. Please open ReachOut NOW.");
         console.log("Crisis alert 3 sent!");
+
+        // Make a phone call to wake up the worker
+        try {
+          const client = twilio(TWILIO_SID, TWILIO_TOKEN);
+          await client.calls.create({
+            twiml: '<Response><Say voice="alice">This is an urgent alert from ReachOut, Singapore Children\'s Society. A youth in your care is in crisis and has been waiting for over a minute with no response. Please open the ReachOut app immediately to respond.</Say></Response>',
+            to: WORKER_PHONE,
+            from: TWILIO_FROM,
+          });
+          console.log("Phone call made to worker!");
+        } catch (e) {
+          console.error("Call failed:", e.message);
+        }
       }, 60 * 1000);
     }
   } catch (e) {
