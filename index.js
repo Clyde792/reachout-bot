@@ -152,9 +152,16 @@ app.post("/webhook", async (req, res) => {
   await upsertConversation(chatId, username);
   await saveMessage(chatId, "user", text);
 
-  // Don't reply if worker is active
+  // Check if within working hours (9am-6pm Singapore time, Mon-Fri)
+  const now = new Date();
+  const sgTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));
+  const hour = sgTime.getHours();
+  const day = sgTime.getDay(); // 0=Sun, 6=Sat
+  const isWorkingHours = day >= 1 && day <= 5 && hour >= 9 && hour < 18;
+
+  // Don't reply if worker is active OR if it's working hours
   const workerActive = await isWorkerActive(chatId);
-  if (workerActive) return;
+  if (workerActive || isWorkingHours) return;
 
   const history = await getMessages(chatId);
   const messages = history.map(m => ({
@@ -188,7 +195,7 @@ CONVERSATION RULES:
   await sendTelegram(chatId, reply);
   await saveMessage(chatId, "assistant", reply);
 
-  if (history.length % 5 === 0) {
+  if (history.length % 2 === 0) {
     generateSummary(chatId).catch(console.error);
   }
 });
