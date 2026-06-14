@@ -116,7 +116,12 @@ Read this conversation and reply ONLY with valid JSON — no markdown, no explan
   "risk_level": "low" | "medium" | "high",
   "summary": "2 sentence summary of what the youth shared",
   "suggested_action": "one clear action the worker should take tomorrow",
-  "crisis": true | false
+  "crisis": true | false,
+  "age": "estimated age or age mentioned, or null",
+  "school": "school mentioned, or null",
+  "likes": "things the youth likes or enjoys, or null",
+  "dislikes": "things the youth dislikes or struggles with, or null",
+  "snapshot": "1 sentence combining key demographics, interests and current crisis e.g. 16yo from Tampines, likes gaming, struggling with family conflict and exam stress"
 }`,
     [{ role: "user", content: transcript }]
   );
@@ -216,8 +221,13 @@ app.post("/worker-active", async (req, res) => {
     ? new Date(Date.now() + 60 * 60 * 1000).toISOString()
     : null;
   await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
-    worker_active: active,
-    worker_active_until: workerActiveUntil,
+    risk_level: parsed.risk_level,
+    summary: parsed.summary,
+    suggested_action: parsed.suggested_action,
+    crisis: parsed.crisis,
+    age: parsed.age,
+    school: parsed.school,
+    snapshot: parsed.snapshot,
   });
   res.json({ ok: true });
 });
