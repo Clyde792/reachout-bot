@@ -174,7 +174,7 @@ app.get("/sessions", async (req, res) => {
   if (req.headers["x-api-key"] !== API_KEY)
     return res.status(401).json({ error: "Unauthorised" });
   const conversations = await supabase("GET",
-    "conversations?order=last_message_time.desc");
+    "conversations?order=last_message_time.desc.nullslast");
   res.json(conversations);
 });
 
