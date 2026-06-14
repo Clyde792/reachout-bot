@@ -139,7 +139,7 @@ async function generateSummary(chatId) {
       }, 30 * 1000);
 
       setTimeout(async function () {
-        await sendTelegram(WORKER_TELEGRAM_ID, "URGENT - Immediate response needed\n\n@" + username + " has been waiting 1 minutes with no response.\n\nThis requires immediate attention. Please open ReachOut NOW.");
+        await sendTelegram(WORKER_TELEGRAM_ID, "URGENT - Immediate response needed\n\n@" + username + " has been waiting 1 minute with no response.\n\nThis requires immediate attention. Please open ReachOut NOW.");
         console.log("Crisis alert 3 sent!");
       }, 60 * 1000);
     }
