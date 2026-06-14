@@ -1,170 +1,194 @@
-
 import express from "express";
 import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
-const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const API_KEY = process.env.DASHBOARD_API_KEY || "reachout123";
 
-const sessions = {};
-const CRISIS_WORDS = ["suicide", "kill myself", "end my life", "run away", "hurt myself", "self harm"];
+// ── Supabase helpers ──────────────────────────────────────────────────────────
 
-function isCrisis(text) {
-  return CRISIS_WORDS.some(w => text.toLowerCase().includes(w));
+async function supabase(method, path, body) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: method === "POST" ? "return=representation" : "",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
 }
+
+async function upsertConversation(chatId, username) {
+  await supabase("POST", "conversations?on_conflict=chat_id", {
+    chat_id: chatId,
+    username,
+    started_at: new Date().toISOString(),
+  });
+}
+
+async function saveMessage(chatId, role, content) {
+  await supabase("POST", "messages", { chat_id: chatId, role, content });
+  await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
+    last_message: content,
+    last_message_time: new Date().toISOString(),
+    message_count: 99, // Supabase will handle real count via trigger if you add one
+  });
+}
+
+async function getMessages(chatId) {
+  const rows = await supabase("GET",
+    `messages?chat_id=eq.${chatId}&order=created_at.asc`);
+  return Array.isArray(rows) ? rows : [];
+}
+
+// ── Telegram helper ───────────────────────────────────────────────────────────
 
 async function sendTelegram(chatId, text) {
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+  });
+}
+
+// ── Claude AI helpers ─────────────────────────────────────────────────────────
+
+async function callClaude(system, messages) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-20240307",
+      max_tokens: 300,
+      system,
+      messages,
+    }),
+  });
+  const data = await res.json();
+  return data?.content?.[0]?.text || "I'm here with you.";
+}
+
+async function generateSummary(chatId) {
+  const msgs = await getMessages(chatId);
+  if (msgs.length < 2) return;
+
+  const transcript = msgs
+    .map(m => `${m.role === "user" ? "Youth" : "Bot"}: ${m.content}`)
+    .join("\n");
+
+  const summary = await callClaude(
+    `You are a clinical summariser for youth social workers. 
+Read this conversation and reply ONLY with valid JSON — no markdown, no explanation:
+{
+  "risk_level": "low" | "medium" | "high",
+  "summary": "2 sentence summary of what the youth shared",
+  "suggested_action": "one clear action the worker should take tomorrow",
+  "crisis": true | false
+}`,
+    [{ role: "user", content: transcript }]
+  );
+
   try {
-    const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" })
+    const parsed = JSON.parse(summary);
+    await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
+      risk_level: parsed.risk_level,
+      summary: parsed.summary,
+      suggested_action: parsed.suggested_action,
+      crisis: parsed.crisis,
     });
-    const data = await res.json();
-    if (!data.ok) console.error("Telegram send error:", JSON.stringify(data));
-    return data;
-  } catch (err) {
-    console.error("sendTelegram failed:", err.message);
+  } catch (e) {
+    console.error("Summary parse failed:", e);
   }
 }
 
-async function callClaude(system, userMessage) {
-  if (!ANTHROPIC_KEY) {
-    console.error("ANTHROPIC_API_KEY is not set!");
-    return null;
-  }
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": ANTHROPIC_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 200,
-        system,
-        messages: [{ role: "user", content: userMessage }]
-      })
-    });
-    const data = await res.json();
-    console.log("Claude response status:", res.status);
-    if (data.error) {
-      console.error("Claude API error:", JSON.stringify(data.error));
-      return null;
-    }
-    return data.content?.[0]?.text || null;
-  } catch (err) {
-    console.error("callClaude failed:", err.message);
-    return null;
-  }
-}
+// ── Webhook — receives messages from Telegram ─────────────────────────────────
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
+  const msg = req.body?.message;
+  if (!msg?.text) return;
 
-  try {
-    const message = req.body?.message;
-    if (!message || !message.text) return;
+  const chatId = msg.chat.id;
+  const username = msg.from?.username || msg.from?.first_name || "Youth";
+  const text = msg.text;
 
-    const chatId = message.chat.id;
-    const text = message.text;
-    const username = message.from?.first_name || "there";
+  // Save the incoming message
+  await upsertConversation(chatId, username);
+  await saveMessage(chatId, "user", text);
 
-    console.log(`Message from ${username} (${chatId}): ${text}`);
+  // Get full history for context
+  const history = await getMessages(chatId);
+  const messages = history.map(m => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.content,
+  }));
 
-    if (!sessions[chatId]) {
-      sessions[chatId] = { username, chatId, messages: [], startTime: new Date().toISOString() };
-    }
+  // AI reply
+  const system = `You are a warm, supportive after-hours chatbot for youths connected to Singapore Children's Society youth workers.
 
-    sessions[chatId].messages.push({ role: "user", content: text, time: new Date().toISOString() });
+IMPORTANT — if the youth mentions suicide, self-harm, wanting to die, jumping, cutting, or any immediate danger, you MUST reply with ONLY this:
+"I'm really concerned about you right now. Please call SOS immediately at 1800-221-4444 (24 hours) or SMS 741741. Your worker will also be notified. You are not alone. 💙"
 
-    if (isCrisis(text)) {
-      await sendTelegram(chatId,
-        `${username}, I can hear that things are really hard right now. Please reach out immediately:\n\n` +
-        `📞 *SOS Crisis Line* — 1800-221-4444\n` +
-        `📞 *CHAT* — 1800-353-5800\n\n` +
-        `Your worker will also be alerted. You are not alone. 💙`
-      );
-      sessions[chatId].crisis = true;
-      return;
-    }
+For all other messages, reply warmly in 2-3 short sentences. Listen, don't give advice. Always end with something that invites them to keep sharing.`;
 
-    if (text === "/start") {
-      await sendTelegram(chatId,
-        `Hey ${username} 👋 I'm ReachOut, a support companion from Singapore Children's Society.\n\n` +
-        `Workers are offline right now but I'm here to listen. Your messages are safe and your worker will follow up with you.\n\n` +
-        `How are you feeling tonight?`
-      );
-      return;
-    }
+  const reply = await callClaude(system, messages);
+  await sendTelegram(chatId, reply);
+  await saveMessage(chatId, "assistant", reply);
 
-    const system = `You are a warm, supportive AI companion for youths at Singapore Children's Society in Singapore.
-Workers are offline. Your job is to listen and provide emotional support only.
-Keep responses short — 2-3 sentences max. Be warm and non-judgmental.
-Never give medical advice. Never pretend to be a human worker.
-End with a gentle question. Remind them their worker will follow up.`;
-
-    const history = sessions[chatId].messages
-      .slice(-6)
-      .map(m => `${m.role === "user" ? username : "Assistant"}: ${m.content}`)
-      .join("\n");
-
-    const reply = await callClaude(system, history);
-
-    if (reply) {
-      await sendTelegram(chatId, reply);
-      sessions[chatId].messages.push({ role: "assistant", content: reply, time: new Date().toISOString() });
-    } else {
-      await sendTelegram(chatId,
-        `I'm here and listening, ${username}. It sounds like you have something on your mind — would you like to share more? Your worker will follow up with you tomorrow. 💙`
-      );
-    }
-  } catch (err) {
-    console.error("Webhook handler error:", err.message);
+  // After every 5 messages, regenerate the AI summary for the worker dashboard
+  if (history.length % 5 === 0) {
+    generateSummary(chatId).catch(console.error);
   }
 });
 
-app.get("/sessions", (req, res) => {
-  const key = req.headers["x-api-key"];
-  if (key !== process.env.DASHBOARD_API_KEY) return res.status(401).json({ error: "Unauthorised" });
-  const result = Object.values(sessions).map(s => ({
-    chatId: s.chatId,
-    username: s.username,
-    startTime: s.startTime,
-    crisis: s.crisis || false,
-    messageCount: s.messages.length,
-    lastMessage: s.messages.filter(m => m.role === "user").slice(-1)[0]?.content || "",
-    lastTime: s.messages.slice(-1)[0]?.time || s.startTime
-  }));
-  res.json(result);
+// ── Dashboard API — ReachOut app reads this ───────────────────────────────────
+
+app.get("/sessions", async (req, res) => {
+  if (req.headers["x-api-key"] !== API_KEY)
+    return res.status(401).json({ error: "Unauthorised" });
+
+  const conversations = await supabase("GET",
+    "conversations?order=last_message_time.desc");
+  res.json(conversations);
 });
 
+app.get("/messages/:chatId", async (req, res) => {
+  if (req.headers["x-api-key"] !== API_KEY)
+    return res.status(401).json({ error: "Unauthorised" });
+
+  const msgs = await getMessages(req.params.chatId);
+  res.json(msgs);
+});
+
+// ── Worker reply — sends a message back to the youth ─────────────────────────
+
 app.post("/reply", async (req, res) => {
-  const key = req.headers["x-api-key"];
-  if (key !== process.env.DASHBOARD_API_KEY) return res.status(401).json({ error: "Unauthorised" });
+  if (req.headers["x-api-key"] !== API_KEY)
+    return res.status(401).json({ error: "Unauthorised" });
+
   const { chatId, message, workerName } = req.body;
-  if (!chatId || !message) return res.status(400).json({ error: "Missing chatId or message" });
-  await sendTelegram(chatId, `💬 *${workerName || "Your worker"}*: ${message}\n\n_Reply here to continue the conversation._`);
+  if (!chatId || !message)
+    return res.status(400).json({ error: "Missing chatId or message" });
+
+  await sendTelegram(chatId,
+    `💬 *${workerName || "Your worker"}*: ${message}`);
+  await saveMessage(chatId, "assistant", `[Worker ${workerName}]: ${message}`);
   res.json({ ok: true });
 });
 
-app.get("/", (req, res) => {
-  res.json({
-    status: "ReachOut bot running",
-    hasToken: !!BOT_TOKEN,
-    hasAnthropicKey: !!ANTHROPIC_KEY,
-    sessions: Object.keys(sessions).length
-  });
-});
+app.get("/", (req, res) => res.json({ status: "ReachOut bot running ✅" }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Bot running on port ${PORT}`);
-  console.log(`BOT_TOKEN set: ${!!BOT_TOKEN}`);
-  console.log(`ANTHROPIC_KEY set: ${!!ANTHROPIC_KEY}`);
-});
+app.listen(PORT, () => console.log(`Bot running on port ${PORT}`)); 
