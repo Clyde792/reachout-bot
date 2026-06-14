@@ -18,6 +18,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 const API_KEY = process.env.DASHBOARD_API_KEY || "reachout123";
+const WORKER_TELEGRAM_ID = 1792561793;
 
 async function supabase(method, path, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -99,13 +100,6 @@ async function callClaude(system, messages, maxTokens = 1000) {
   return data?.content?.[0]?.text || "I'm here with you.";
 }
 
-// Alert worker if high risk or crisis
-if (parsed.crisis || parsed.risk_level === 'high') {
-  await sendTelegram(1792561793,
-    `🚨 *CRISIS ALERT — ReachOut*\n\n*Youth:* @${(await supabase("GET", `conversations?chat_id=eq.${chatId}&select=username`)).find?.(r => r)?.username || 'Unknown'}\n*Risk:* ${parsed.risk_level?.toUpperCase()}\n\n*Summary:* ${parsed.summary}\n\n*Action needed:* ${parsed.suggested_action}\n\nOpen ReachOut app to respond.`
-  );
-}
-
 async function generateSummary(chatId) {
   const msgs = await getMessages(chatId);
   if (msgs.length < 2) return;
@@ -145,6 +139,16 @@ Read this conversation and reply ONLY with valid JSON — no markdown, no explan
       school: parsed.school,
       snapshot: parsed.snapshot,
     });
+
+    // Alert worker if high risk or crisis
+    if (parsed.crisis || parsed.risk_level === 'high') {
+      const convRows = await supabase("GET", `conversations?chat_id=eq.${chatId}&select=username`);
+      const username = Array.isArray(convRows) ? convRows[0]?.username : 'Unknown';
+      await sendTelegram(WORKER_TELEGRAM_ID,
+        `🚨 *CRISIS ALERT — ReachOut*\n\n*Youth:* @${username}\n*Risk:* ${parsed.risk_level?.toUpperCase()}\n\n*Summary:* ${parsed.summary}\n\n*Action needed:* ${parsed.suggested_action}\n\nOpen ReachOut app to respond.`
+      );
+      console.log("Crisis alert sent to worker!");
+    }
   } catch (e) {
     console.error("Summary parse failed:", e);
   }
