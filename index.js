@@ -23,6 +23,7 @@ const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM = process.env.TWILIO_PHONE_NUMBER;
 const WORKER_PHONE = process.env.WORKER_PHONE_NUMBER;
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 
 async function supabase(method, path, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -149,7 +150,6 @@ async function generateSummary(chatId) {
         await sendTelegram(WORKER_TELEGRAM_ID, "URGENT - Immediate response needed\n\n@" + username + " has been waiting 1 minute with no response.\n\nThis requires immediate attention. Please open ReachOut NOW.");
         console.log("Crisis alert 3 sent!");
 
-        // Make a phone call to wake up the worker
         try {
           const client = twilio(TWILIO_SID, TWILIO_TOKEN);
           await client.calls.create({
@@ -165,6 +165,67 @@ async function generateSummary(chatId) {
     }
   } catch (e) {
     console.error("Summary parse failed:", e);
+  }
+}
+
+async function analyzeInstagram(username) {
+  try {
+    const res = await fetch(
+      `https://instagram-scraper-stable-api.p.rapidapi.com/v1/get_user_posts_or_tagged_posts?username_or_url=${encodeURIComponent(username)}&amount=12`,
+      {
+        method: 'GET',
+        headers: {
+          'x-rapidapi-key': RAPIDAPI_KEY,
+          'x-rapidapi-host': 'instagram-scraper-stable-api.p.rapidapi.com',
+        },
+      }
+    );
+    const data = await res.json();
+    console.log("Instagram raw:", JSON.stringify(data).slice(0, 300));
+
+    if (!data || data.error || data.detail) {
+      return { error: 'Account not found or private' };
+    }
+
+    const posts = data.data?.items || data.items || data.result?.items || [];
+    if (posts.length === 0) {
+      return { error: 'No posts found or account is private' };
+    }
+
+    const postData = posts.map(function (p) {
+      return {
+        caption: p.caption?.text || p.caption || '',
+        timestamp: p.taken_at || p.timestamp,
+        likes: p.like_count || 0,
+        is_reel: p.media_type === 2,
+      };
+    });
+
+    const timestamps = postData.map(function (p) { return p.timestamp; }).filter(Boolean);
+    const daysSinceLastPost = timestamps.length > 0
+      ? Math.floor((Date.now() / 1000 - timestamps[0]) / 86400)
+      : null;
+
+    const transcript = postData.map(function (p, i) {
+      return "Post " + (i + 1) + " (" + (p.is_reel ? 'Reel' : 'Photo') + "): \"" + p.caption + "\"";
+    }).join('\n');
+
+    const analysis = await callClaude(
+      "You are a youth mental health analyst for Singapore Children's Society workers.\nAnalyse these Instagram posts from a youth and return ONLY valid JSON no markdown:\n{\"caption_risk\": 0 to 100, \"hashtag_risk\": 0 to 100, \"frequency_risk\": 0 to 100, \"overall_risk\": 0 to 100, \"risk_level\": \"low or medium or high\", \"flags\": [\"list of specific concerning phrases or patterns\"], \"summary\": \"2 sentence analysis for the worker\"}\nBase your analysis on: dark language, hopelessness, isolation themes, concerning hashtags like numb broken sad exhausted, and themes of self-harm or giving up. Be conservative - only flag genuine concerns not normal teen expression.",
+      [{ role: "user", content: "Username: @" + username + "\nDays since last post: " + daysSinceLastPost + "\nRecent posts:\n" + transcript }],
+      1000
+    );
+
+    try {
+      const clean = analysis.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(clean);
+      return { ...parsed, post_count: posts.length, days_since_last_post: daysSinceLastPost };
+    } catch (e) {
+      return { error: 'Analysis failed', raw: analysis };
+    }
+  } catch (e) {
+    console.error('Instagram analysis error:', e);
+    return { error: e.message };
   }
 }
 
@@ -250,6 +311,27 @@ app.post("/trigger-summary", async function (req, res) {
     res.json({ error: e.message });
   }
 });
+
+app.post("/analyze-social", async function (req, res) {
+  if (req.headers["x-api-key"] !== API_KEY) return res.status(401).json({ error: "Unauthorised" });
+  const { chatId, instagram_username } = req.body;
+  if (!instagram_username) return res.status(400).json({ error: "Missing instagram_username" });
+
+  console.log("Analysing Instagram:", instagram_username);
+  const result = await analyzeInstagram(instagram_username);
+
+  if (!result.error && chatId) {
+    await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
+      instagram_username,
+      social_risk_score: result.overall_risk,
+      social_risk_summary: result.summary,
+      social_last_checked: new Date().toISOString(),
+    });
+  }
+
+  res.json(result);
+});
+
 app.get("/", function (req, res) { res.json({ status: "ReachOut bot running" }); });
 
 const PORT = process.env.PORT || 3000;
