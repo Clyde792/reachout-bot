@@ -171,13 +171,15 @@ async function generateSummary(chatId) {
 async function analyzeInstagram(username) {
   try {
     const res = await fetch(
-      `https://instagram-scraper-stable-api.p.rapidapi.com/get_ig_user_posts.php?username_or_url=${encodeURIComponent(username)}&amount=12`,
+      `https://instagram-scraper-stable-api.p.rapidapi.com/get_ig_user_posts.php`,
       {
-        method: 'GET',
+        method: 'POST',
         headers: {
           'x-rapidapi-key': RAPIDAPI_KEY,
           'x-rapidapi-host': 'instagram-scraper-stable-api.p.rapidapi.com',
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
+        body: `username_or_url=https://www.instagram.com/${encodeURIComponent(username)}/&amount=12`,
       }
     );
     const data = await res.json();
