@@ -112,7 +112,7 @@ async function generateSummary(chatId) {
     .map(function (m) { return (m.role === "user" ? "Youth" : "Bot") + ": " + m.content; })
     .join("\n");
 
-  const summaryPrompt = "You are a clinical summariser for youth social workers.\nRead this conversation and reply ONLY with valid JSON - no markdown, no explanation:\n{\"risk_level\": \"low or medium or high\", \"summary\": \"2 sentence summary\", \"suggested_action\": \"one clear action\", \"crisis\": true or false, \"age\": \"age or null\", \"school\": \"school or null\", \"likes\": \"likes or null\", \"dislikes\": \"dislikes or null\", \"snapshot\": \"1 sentence snapshot\"}";
+  const summaryPrompt = "You are a clinical summariser for youth social workers.\nRead this conversation and reply ONLY with valid JSON - no markdown, no explanation:\n{\"risk_level\": \"low or medium or high\", \"summary\": \"2 sentence summary\", \"suggested_action\": \"one clear action\", \"crisis\": true or false, \"age\": \"age or null\", \"school\": \"school or null\", \"likes\": \"likes or null\", \"dislikes\": \"dislikes or null\", \"snapshot\": \"1 sentence snapshot\", \"trust_level\": 0 to 100 integer based on how openly the youth is sharing, \"engagement_level\": 0 to 100 integer based on how actively the youth is participating}";
 
   const summary = await callClaude(summaryPrompt, [{ role: "user", content: transcript }], 1000);
 
@@ -129,6 +129,8 @@ async function generateSummary(chatId) {
       age: parsed.age,
       school: parsed.school,
       snapshot: parsed.snapshot,
+      trust_level: parsed.trust_level,
+      engagement_level: parsed.engagement_level,
     });
 
     if (parsed.crisis || parsed.risk_level === 'high') {
@@ -248,7 +250,6 @@ app.post("/trigger-summary", async function (req, res) {
     res.json({ error: e.message });
   }
 });
-
 app.get("/", function (req, res) { res.json({ status: "ReachOut bot running" }); });
 
 const PORT = process.env.PORT || 3000;
