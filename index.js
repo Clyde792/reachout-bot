@@ -47,10 +47,11 @@ async function supabase(method, path, body) {
   }
 }
 
-async function upsertConversation(chatId, username) {
+async function upsertConversation(chatId, username, displayName) {
   await supabase("POST", "conversations?on_conflict=chat_id", {
     chat_id: chatId,
     username,
+    display_name: displayName,
     started_at: new Date().toISOString(),
   });
 }
@@ -113,7 +114,7 @@ async function generateSummary(chatId) {
     .map(function (m) { return (m.role === "user" ? "Youth" : "Bot") + ": " + m.content; })
     .join("\n");
 
-  const summaryPrompt = "You are a clinical summariser for youth social workers.\nRead this conversation and reply ONLY with valid JSON - no markdown, no explanation:\n{\"risk_level\": \"low or medium or high\", \"summary\": \"2 sentence summary\", \"suggested_action\": \"one clear action\", \"crisis\": true or false, \"age\": \"age or null\", \"school\": \"school or null\", \"likes\": \"likes or null\", \"dislikes\": \"dislikes or null\", \"snapshot\": \"1 sentence snapshot\", \"trust_level\": 0 to 100 integer based on how openly the youth is sharing, \"engagement_level\": 0 to 100 integer based on how actively the youth is participating}";
+  const summaryPrompt = "You are a clinical summariser for youth social workers at Singapore Children's Society.\nRead this conversation and reply ONLY with valid JSON - no markdown, no explanation:\n{\"risk_level\": \"low or medium or high\", \"summary\": [\"precise bullet point 1 about what the youth shared\", \"precise bullet point 2 about emotional state or concerns\", \"precise bullet point 3 about key events or triggers\", \"precise bullet point 4 about any risks or protective factors\"], \"suggested_action\": \"one clear action\", \"crisis\": true or false, \"age\": \"age or null\", \"school\": \"school or null\", \"likes\": \"likes or null\", \"dislikes\": \"dislikes or null\", \"snapshot\": \"1 sentence snapshot\", \"trust_level\": 0 to 100 integer based on how openly the youth is sharing, \"engagement_level\": 0 to 100 integer based on how actively the youth is participating, \"mood_score\": 0 to 100 integer where 0 is extremely sad or distressed and 100 is very happy and positive based on overall tone of conversation}";
 
   const summary = await callClaude(summaryPrompt, [{ role: "user", content: transcript }], 1000);
 
@@ -124,7 +125,7 @@ async function generateSummary(chatId) {
 
     await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
       risk_level: parsed.risk_level,
-      summary: parsed.summary,
+      summary: Array.isArray(parsed.summary) ? parsed.summary.join('|||') : parsed.summary,
       suggested_action: parsed.suggested_action,
       crisis: parsed.crisis,
       age: parsed.age,
@@ -132,6 +133,7 @@ async function generateSummary(chatId) {
       snapshot: parsed.snapshot,
       trust_level: parsed.trust_level,
       engagement_level: parsed.engagement_level,
+      mood_score: parsed.mood_score,
     });
 
     if (parsed.crisis || parsed.risk_level === 'high') {
@@ -242,7 +244,8 @@ app.post("/webhook", async function (req, res) {
   const username = msg.from?.username || msg.from?.first_name || "Youth";
   const text = msg.text;
 
-  await upsertConversation(chatId, username);
+  const displayName = msg.from?.first_name || username;
+  await upsertConversation(chatId, username, displayName);
   await saveMessage(chatId, "user", text);
 
   const now = new Date();
