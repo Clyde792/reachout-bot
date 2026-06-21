@@ -116,8 +116,11 @@ async function detectAndTranslate(text, targetLanguage) {
 }
 
 async function detectLanguage(text) {
+  // Skip detection on very short or trivial messages - unreliable signal
+  if (!text || text.trim().length < 8) return null;
+
   const result = await callClaude(
-    "Detect the language of this text. Reply with ONLY the language name in English, nothing else. Examples: English, Malay, Mandarin, Tamil, Tagalog",
+    "Detect the language of this message. The message is from a youth chatting on a helpline - they sometimes mention OTHER languages by name in English (e.g. 'I want to speak Chinese', 'can we do Burmese') without actually writing in that language. In those cases, the message itself is still English - reply 'English'. Only reply with a non-English language name if the message text itself is actually written in that language. Reply with ONLY the language name in English, nothing else. Examples: English, Malay, Mandarin, Tamil, Tagalog",
     [{ role: "user", content: text }],
     20
   );
@@ -362,9 +365,21 @@ app.post("/webhook", async function (req, res) {
   const detectedLang = await detectLanguage(text);
   const isValidLanguage = detectedLang && detectedLang.length < 30 && !detectedLang.includes('.') && !detectedLang.includes(' please ');
   if (isValidLanguage && detectedLang !== 'English') {
-    await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
-      preferred_language: detectedLang,
-    });
+    // Require the same non-English language to be detected twice before saving,
+    // to avoid one-off misdetections from short or ambiguous messages
+    const convCheck2 = await supabase("GET", `conversations?chat_id=eq.${chatId}&select=preferred_language,last_detected_language`);
+    const convRow2 = Array.isArray(convCheck2) ? convCheck2[0] : null;
+
+    if (convRow2?.last_detected_language === detectedLang) {
+      await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
+        preferred_language: detectedLang,
+        last_detected_language: detectedLang,
+      });
+    } else {
+      await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
+        last_detected_language: detectedLang,
+      });
+    }
   }
 
   const now = new Date();
