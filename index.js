@@ -620,6 +620,17 @@ GATHERING INFO (casually, one at a time):
  
 ALWAYS REMEMBER: You are not here to fix anything. You are here to listen, keep them company, and make sure they know a real person who cares will check in.`;
 
+  // Analyse EVERY youth message so risk level, summary, MBTI and crisis flags
+  // stay current even when a worker is handling the chat and the bot is silent.
+  checkCrisisOnly(chatId, username, text).catch(console.error);
+
+  const convCheck = await supabase("GET", `conversations?chat_id=eq.${chatId}&select=social_media_asked,instagram_username,other_social_media`);
+  const convCheckRow = Array.isArray(convCheck) ? convCheck[0] : null;
+  const awaitingSocialMediaReply = convCheckRow?.social_media_asked && !convCheckRow?.instagram_username && !convCheckRow?.other_social_media;
+  if ((history.length + 1) % 2 === 0 || awaitingSocialMediaReply) {
+    generateSummary(chatId).catch(console.error);
+  }
+
   // During working hours / while a worker is active, the worker handles the
   // chat. But if the bot hasn't already taken this conversation over, schedule
   // a fallback: if no worker reply lands within the window, the bot steps in.
@@ -646,17 +657,6 @@ ALWAYS REMEMBER: You are not here to fix anything. You are here to listen, keep 
   setTimeout(function () {
     checkAndAskSocialMedia(chatId, username).catch(console.error);
   }, 60 * 1000);
-
-  // Lightweight crisis check - runs on EVERY message, cheap, never skipped
-  checkCrisisOnly(chatId, username, text).catch(console.error);
-
-  const convCheck = await supabase("GET", `conversations?chat_id=eq.${chatId}&select=social_media_asked,instagram_username,other_social_media`);
-  const convCheckRow = Array.isArray(convCheck) ? convCheck[0] : null;
-  const awaitingSocialMediaReply = convCheckRow?.social_media_asked && !convCheckRow?.instagram_username && !convCheckRow?.other_social_media;
-
-  if ((history.length + 1) % 2 === 0 || awaitingSocialMediaReply) {
-    generateSummary(chatId).catch(console.error);
-  }
 });
 
 app.get("/sessions", async function (req, res) {
