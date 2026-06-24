@@ -82,8 +82,10 @@ async function upsertConversation(chatId, username, displayName) {
   });
 }
 
-async function saveMessage(chatId, role, content) {
-  await supabase("POST", "messages", { chat_id: chatId, role, content });
+async function saveMessage(chatId, role, content, telegramMessageId) {
+  const row = { chat_id: chatId, role, content };
+  if (telegramMessageId) row.telegram_message_id = telegramMessageId;
+  await supabase("POST", "messages", row);
   await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
     last_message: content,
     last_message_time: new Date().toISOString(),
@@ -135,11 +137,12 @@ async function isWorkerActive(chatId) {
 }
 
 async function sendTelegram(chatId, text) {
-  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+  const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
   });
+  return res.json().catch(function () { return null; });
 }
 
 async function callClaude(system, messages, maxTokens) {
@@ -681,8 +684,8 @@ app.post("/reply", async function (req, res) {
     messageToSend = await detectAndTranslate(message, preferredLang);
   }
 
-  await sendTelegram(chatId, (workerName ? workerName + ": " : "") + messageToSend);
-  await saveMessage(chatId, "assistant", "[Worker " + workerName + "]: " + message);
+  const tg = await sendTelegram(chatId, (workerName ? workerName + ": " : "") + messageToSend);
+  await saveMessage(chatId, "assistant", "[Worker " + workerName + "]: " + message, tg?.result?.message_id);
 
   // Worker has actively responded - clear crisis suppression so a future episode can re-alert
   await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
@@ -709,6 +712,25 @@ app.post("/worker-intro", async function (req, res) {
   const { chatId, workerName } = req.body;
   if (!chatId || !workerName) return res.status(400).json({ error: "Missing chatId or workerName" });
   await sendWorkerIntro(chatId, workerName);
+  res.json({ ok: true });
+});
+
+// Delete a previously-sent Telegram message from the youth's chat (used when a
+// worker deletes their own message in the app, so it disappears on both ends).
+// Telegram only allows deleting messages sent within the last 48 hours.
+app.post("/delete-telegram", async function (req, res) {
+  if (req.headers["x-api-key"] !== API_KEY) return res.status(401).json({ error: "Unauthorised" });
+  const { chatId, messageId } = req.body;
+  if (!chatId || !messageId) return res.status(400).json({ error: "Missing chatId or messageId" });
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/deleteMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+    });
+  } catch (e) {
+    console.error("delete-telegram error:", e);
+  }
   res.json({ ok: true });
 });
 
