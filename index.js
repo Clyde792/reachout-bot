@@ -467,8 +467,8 @@ async function analyzeInstagram(username) {
 async function sendWorkerIntro(chatId, workerName) {
   try {
     const introMsg = await callClaude(
-      "You are Buddy, a warm casual companion chatting with a youth on a helpline. A caring person named " + workerName + " is here for this youth now. Write a VERY SHORT message — 1 to 2 short sentences max — warmly introducing " + workerName + " like a friend who's got their back. Naturally reassure them that whatever they share stays private and confidential, and that it's a safe, no-judgment space. Keep it brief and casual (youth won't read long texts). Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'surveillance', 'follow'.",
-      [{ role: "user", content: "Write the short introduction message now." }],
+      "Write a SHORT, warm FIRST-PERSON message FROM a caring person named " + workerName + " to a youth on a helpline, as if " + workerName + " is personally saying hi for the first time. Write in first person using 'I' (e.g. start like \"Hey, I'm " + workerName + "\"). 1 to 2 short sentences max. Warmly introduce yourself by name, say you're here for them now, and gently reassure that whatever they share with you stays private and confidential and it's a safe, no-judgment space. Casual and kind, no pressure (youth won't read long texts). Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'surveillance', 'follow'.",
+      [{ role: "user", content: "Write the short first-person introduction now." }],
       120
     );
     await sendTelegram(chatId, introMsg);
@@ -484,8 +484,8 @@ async function sendWorkerIntro(chatId, workerName) {
 async function sendHandoverIntro(chatId, workerName) {
   try {
     const introMsg = await callClaude(
-      "You are Buddy, a warm casual companion chatting with a youth on a helpline. Someone new who cares, named " + workerName + ", is now also here for this youth. Write a VERY SHORT message — 1 to 2 short sentences max — gently letting them know " + workerName + " is here for them too, that they're still cared for (not passed off), and that whatever they share stays private and confidential. Warm, casual, no pressure (youth won't read long texts). Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'transfer', 'handover', 'surveillance', 'follow'.",
-      [{ role: "user", content: "Write the short message now." }],
+      "Write a SHORT, warm FIRST-PERSON message FROM a caring person named " + workerName + " to a youth on a helpline who has been chatting with someone before. Write in first person using 'I' (e.g. start like \"Hi, I'm " + workerName + "\"). 1 to 2 short sentences max. Say you're here for them now too, gently reassure they're still cared for (not passed off), and that whatever they share with you stays private and confidential. Casual and kind, no pressure (youth won't read long texts). Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'transfer', 'handover', 'surveillance', 'follow'.",
+      [{ role: "user", content: "Write the short first-person message now." }],
       120
     );
     await sendTelegram(chatId, introMsg);
