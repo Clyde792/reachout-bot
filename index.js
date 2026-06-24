@@ -473,6 +473,40 @@ async function sendWorkerIntro(chatId, workerName) {
   }
 }
 
+// If a worker is expected to handle a chat (working hours, or a worker is
+// active) but doesn't reply within this window, the bot takes over so the youth
+// is never left waiting. Override with AUTO_REPLY_MINUTES env var.
+const AUTO_REPLY_MINUTES = parseInt(process.env.AUTO_REPLY_MINUTES || "5", 10);
+const AUTO_REPLY_MS = AUTO_REPLY_MINUTES * 60 * 1000;
+
+// Scheduled after a youth message that a worker is expected to answer. If no
+// worker (or bot) has replied by the time this runs, the bot steps in so the
+// youth isn't left hanging — even during working hours.
+async function maybeAutoReply(chatId, username, system) {
+  try {
+    if (await isWorkerActive(chatId)) return; // a worker is in the chat right now
+    const msgs = await getMessages(chatId);
+    if (!msgs.length) return;
+    const last = msgs[msgs.length - 1];
+    if (last.role !== "user") return; // a worker or the bot already replied since
+
+    const messages = msgs.map(function (m) {
+      return {
+        role: m.role === "user" ? "user" : "assistant",
+        content: String(m.content).replace(/^\[Worker [^\]]+\]: /, ""),
+      };
+    });
+    const reply = await callClaude(system, messages, 300);
+    await sendTelegram(chatId, reply);
+    await saveMessage(chatId, "assistant", reply);
+    console.log("Auto-reply: bot took over chat " + chatId + " after worker silence");
+    checkCrisisOnly(chatId, username, last.content).catch(console.error);
+    generateSummary(chatId).catch(console.error);
+  } catch (e) {
+    console.error("Auto-reply fallback error:", e);
+  }
+}
+
 app.post("/webhook", async function (req, res) {
   res.sendStatus(200);
   const msg = req.body?.message;
@@ -517,7 +551,7 @@ app.post("/webhook", async function (req, res) {
   const isWorkingHours = day >= 1 && day <= 5 && hour >= 9 && hour < 18;
 
   const workerActive = await isWorkerActive(chatId);
-  if (workerActive || isWorkingHours) return;
+  const botShouldStaySilent = workerActive || isWorkingHours;
 
   const history = await getMessages(chatId);
   const messages = history.map(function (m) {
@@ -565,6 +599,25 @@ GATHERING INFO (casually, one at a time):
 - If they decline, seem reluctant, or say they'd rather not share something (social media or anything else), drop it warmly right away and do not bring it up again — respect their boundary completely, no follow-up questions or gentle pushing
  
 ALWAYS REMEMBER: You are not here to fix anything. You are here to listen, keep them company, and make sure they know a real person who cares will check in.`;
+
+  // During working hours / while a worker is active, the worker handles the
+  // chat. But if the bot hasn't already taken this conversation over, schedule
+  // a fallback: if no worker reply lands within the window, the bot steps in.
+  // Once the bot is the last one talking, it keeps replying immediately until a
+  // worker sends a message again (which reclaims the chat).
+  if (botShouldStaySilent) {
+    const prior = history.slice(0, -1);
+    const lastPrior = prior.length ? prior[prior.length - 1] : null;
+    const botEngaged = !!lastPrior && lastPrior.role === "assistant" &&
+      !String(lastPrior.content).startsWith("[Worker");
+    if (!botEngaged) {
+      setTimeout(function () {
+        maybeAutoReply(chatId, username, system).catch(console.error);
+      }, AUTO_REPLY_MS);
+      return;
+    }
+    // botEngaged: fall through and reply immediately, like after-hours.
+  }
 
   const reply = await callClaude(system, messages, 300);
   await sendTelegram(chatId, reply);
