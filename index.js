@@ -734,6 +734,47 @@ app.post("/delete-telegram", async function (req, res) {
   res.json({ ok: true });
 });
 
+// Send an image (by public URL) to the youth's Telegram chat and record it as a
+// worker message so it shows in the app too. Stores telegram_message_id so the
+// photo can also be deleted from both ends later.
+app.post("/send-photo", async function (req, res) {
+  if (req.headers["x-api-key"] !== API_KEY) return res.status(401).json({ error: "Unauthorised" });
+  const { chatId, imageUrl, workerName } = req.body;
+  if (!chatId || !imageUrl) return res.status(400).json({ error: "Missing chatId or imageUrl" });
+
+  let tgId = null;
+  try {
+    const tg = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo: imageUrl,
+        caption: workerName ? workerName + " sent a photo" : undefined,
+      }),
+    });
+    const data = await tg.json().catch(function () { return null; });
+    tgId = data?.result?.message_id || null;
+  } catch (e) {
+    console.error("send-photo telegram error:", e);
+  }
+
+  const row = {
+    chat_id: chatId,
+    role: "assistant",
+    content: "[Worker " + (workerName || "Worker") + "]: ",
+    image_url: imageUrl,
+  };
+  if (tgId) row.telegram_message_id = tgId;
+  await supabase("POST", "messages", row);
+  await supabase("PATCH", `conversations?chat_id=eq.${chatId}`, {
+    last_message: "📷 Photo",
+    last_message_time: new Date().toISOString(),
+  });
+
+  res.json({ ok: true });
+});
+
 app.post("/handover-intro", async function (req, res) {
   if (req.headers["x-api-key"] !== API_KEY) return res.status(401).json({ error: "Unauthorised" });
   const { chatId, workerName } = req.body;
