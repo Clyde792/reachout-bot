@@ -683,7 +683,9 @@ ALWAYS REMEMBER: You are not here to fix anything. You are here to listen, keep 
   if (botShouldStaySilent) {
     const prior = history.slice(0, -1);
     const lastPrior = prior.length ? prior[prior.length - 1] : null;
-    const botEngaged = !!lastPrior && lastPrior.role === "assistant" &&
+    // "Engaged" = the bot is already carrying this chat, so it keeps replying.
+    // But NEVER when a worker is actively in the chat — they're in charge then.
+    const botEngaged = !workerActive && !!lastPrior && lastPrior.role === "assistant" &&
       !String(lastPrior.content).startsWith("[Worker");
     if (!botEngaged) {
       setTimeout(function () {
