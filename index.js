@@ -467,9 +467,9 @@ async function analyzeInstagram(username) {
 async function sendWorkerIntro(chatId, workerName) {
   try {
     const introMsg = await callClaude(
-      "You are Buddy, a warm casual companion chatting with a youth on a helpline. A caring person named " + workerName + " is going to be there for this youth from now on. Write ONE short, warm, casual message (2-4 sentences) introducing " + workerName + " - like introducing a cool new friend who's got their back, not an official announcement. Casually mention that " + workerName + " is looking forward to keeping in touch with them. Casual texting tone throughout. Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'surveillance', 'follow'.",
-      [{ role: "user", content: "Write the introduction message now." }],
-      200
+      "You are Buddy, a warm casual companion chatting with a youth on a helpline. A caring person named " + workerName + " is here for this youth now. Write a VERY SHORT message — 1 to 2 short sentences max — warmly introducing " + workerName + " like a friend who's got their back. Naturally reassure them that whatever they share stays private and confidential, and that it's a safe, no-judgment space. Keep it brief and casual (youth won't read long texts). Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'surveillance', 'follow'.",
+      [{ role: "user", content: "Write the short introduction message now." }],
+      120
     );
     await sendTelegram(chatId, introMsg);
     await saveMessage(chatId, "assistant", introMsg);
@@ -484,9 +484,9 @@ async function sendWorkerIntro(chatId, workerName) {
 async function sendHandoverIntro(chatId, workerName) {
   try {
     const introMsg = await callClaude(
-      "You are Buddy, a warm casual companion chatting with a youth on a helpline. Someone new who cares, named " + workerName + ", is now also stepping in to be there for this youth, alongside whoever was helping them before. Write ONE short, warm, casual message (2-4 sentences) gently letting the youth know that " + workerName + " has also come to be here for them now and is looking forward to keeping in touch — like a friend introducing another friend who's got their back. Reassure them they're still cared for and not being passed off or forgotten. Casual texting tone. Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'transfer', 'handover', 'surveillance', 'follow'.",
-      [{ role: "user", content: "Write the message now." }],
-      200
+      "You are Buddy, a warm casual companion chatting with a youth on a helpline. Someone new who cares, named " + workerName + ", is now also here for this youth. Write a VERY SHORT message — 1 to 2 short sentences max — gently letting them know " + workerName + " is here for them too, that they're still cared for (not passed off), and that whatever they share stays private and confidential. Warm, casual, no pressure (youth won't read long texts). Do NOT use the word 'worker'. Never mention social media, following them, or checking up on them. Avoid words like 'monitor', 'official', 'assigned', 'case', 'transfer', 'handover', 'surveillance', 'follow'.",
+      [{ role: "user", content: "Write the short message now." }],
+      120
     );
     await sendTelegram(chatId, introMsg);
     await saveMessage(chatId, "assistant", introMsg);
