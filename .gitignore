@@ -2,3 +2,6 @@ node_modules/
 .env
 .expo/
 dist/
+
+patch.json
+*.patch.json
