@@ -916,6 +916,30 @@ app.post("/translate", async function (req, res) {
   res.json({ translated });
 });
 
+const BOT_START = Date.now();
+
+// Observability: liveness + lightweight runtime metrics. Point an uptime
+// monitor at /health so you're alerted the moment the bot is unreachable.
+app.get("/health", function (req, res) {
+  res.json({ status: "ok", uptime_s: Math.floor((Date.now() - BOT_START) / 1000), ts: new Date().toISOString() });
+});
+
+app.get("/metrics", async function (req, res) {
+  const m = process.memoryUsage();
+  let dbOk = false;
+  try {
+    const rows = await supabase("GET", "conversations?select=chat_id&limit=1");
+    dbOk = Array.isArray(rows);
+  } catch (e) { dbOk = false; }
+  res.json({
+    uptime_s: Math.floor((Date.now() - BOT_START) / 1000),
+    memory_mb: Math.round(m.rss / 1048576),
+    heap_used_mb: Math.round(m.heapUsed / 1048576),
+    node: process.version,
+    db_ok: dbOk,
+  });
+});
+
 app.get("/", function (req, res) { res.json({ status: "Lantern bot running" }); });
 
 const PORT = process.env.PORT || 3000;
