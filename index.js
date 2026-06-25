@@ -582,7 +582,15 @@ app.post("/webhook", async function (req, res) {
 
   const displayName = msg.from?.first_name || username;
   await upsertConversation(chatId, username, displayName);
+  // First-ever contact → one-time AI transparency + confidentiality notice
+  // (sent regardless of working hours; fixed wording, not AI-generated).
+  const isFirstContact = (await getMessages(chatId)).length === 0;
   await saveMessage(chatId, "user", text);
+  if (isFirstContact) {
+    const notice = "hey! just so you know — I'm Buddy, a friendly AI here to keep you company, and a caring person from Singapore Children's Society can see our chat so they can support you. whatever you share stays private and is only used to help you 💙 you don't have to share anything you're not comfortable with.";
+    await sendTelegram(chatId, notice);
+    await saveMessage(chatId, "assistant", notice);
+  }
 
   // Notify the assigned worker (push) whenever their youth messages the bot.
   notifyAssignedWorker(chatId, username, text).catch(console.error);
