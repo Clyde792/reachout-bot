@@ -48,6 +48,14 @@ spec:
                 secretKeyRef:
                   name: reachout-secrets
                   key: SUPABASE_KEY
+            # Server-only key that bypasses RLS. optional:true so the pod still
+            # starts (falls back to SUPABASE_KEY) until you add this secret key.
+            - name: SUPABASE_SERVICE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: reachout-secrets
+                  key: SUPABASE_SERVICE_KEY
+                  optional: true
             - name: DASHBOARD_API_KEY
               valueFrom:
                 secretKeyRef:
